@@ -366,7 +366,7 @@ df <- data[,4:31]
 
 cor_ma <- cor(df)
 
-corrplot(cor_ma,tl.cex=0.6,tl.offset = 1)
+corrplot(cor_ma,tl.cex=0.6,tl.offset = 0.5)
 
 # based on this plot we excluded variables that were extremely highly correlated
 # for obvious reasons and probably dont give useful extra information 
