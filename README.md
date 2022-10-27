@@ -1,4 +1,4 @@
-# Predicting-Stock-Market-Crash-FIE-456-
+# Predicting-Company-Stock-Returns-FIE-456-
 
 This is a project for the course called "Big-Data with application in finance" 
 
