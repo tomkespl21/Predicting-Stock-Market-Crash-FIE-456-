@@ -426,7 +426,7 @@ knnfit1 = train(y1~., data = train1,
                       method = "knn",
                       trControl=trctrl,
                       preProcess=c("BoxCox","center","scale","pca"),
-                      tuneLength=5)
+                      tuneLength=9)
                       #tuneGrid=grid)
 
 
@@ -436,7 +436,7 @@ knnfit2 = train(y2~., data = train2,
                 method = "knn",
                 trControl=trctrl,
                 preProcess=c("BoxCox","center","scale","pca"),
-                tuneLength=5)
+                tuneLength=9)
                 #tuneGrid=grid)
 
 
@@ -475,8 +475,25 @@ rffit2 <- train(y2 ~ .,
 
 
 
+gbmGrid <-  expand.grid(interaction.depth = c(1, 9), 
+                        n.trees = 100, 
+                        shrinkage = 0.1,
+                        n.minobsinnode = 20)
+
+set.seed(42)
+gbmfit1 <- train(y1 ~ ., data = train1, 
+                 method = "gbm", 
+                 trControl = trctrl,
+                 tuneGrid = gbmGrid)
 
 
+
+
+set.seed(42)
+gbmfit2 <- train(y2 ~ ., data = train2, 
+                 method = "gbm", 
+                 trControl = trctrl,
+                 tuneGrid = gbmGrid)
 
 
 
