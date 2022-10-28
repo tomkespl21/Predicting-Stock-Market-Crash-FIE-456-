@@ -23,6 +23,11 @@ library(xts)        # end of month subsetting
 library("sqldf")
 library(corrplot) 
 library(factoextra) # pca - fviz_eigen function
+library(caret)      # machine learning algos
+library(kknn)
+library(nnet)
+library(randomForest)
+library(gbm)
 
 crsp <- read.csv(unz("crsp-monthly.zip", "crsp-monthly.csv"))
 crsp <- read.csv("crsp-monthly.csv")
@@ -395,9 +400,102 @@ class(df2$y1)
 pca = prcomp(df2,scale = T)
 
 fviz_eig(pca,title="",addlabels=T)
-fviz_pca_var(pca,title="", geom = c("point", "text"),repel=T)
+fviz_pca_var(pca,title="", geom = c("point","text"),repel=T)
+fviz_pca_var(pca,title="", geom = c("point"),repel=T)
 
 
+######################## models ##################################
+
+
+# knn algorithm 
+
+#grid <- expand.grid(kmax = c(9,13),            # allows to test a range of k values
+#                    distance = 2,        # allows to test a range of minkowski distances
+#                    kernel = 'rectangular')   # different weighting types in kkn (not used in this thesis)
+
+
+set.seed(42)
+# pcacomp for number of pcs considered, "cv" for cross validtion 
+trctrl = trainControl(method = "cv",
+                      number=3,
+                      preProcOptions = list(pcaComp=5),
+                      verboseIter = TRUE) 
+
+# knn fit for returns:
+knnfit1 = train(y1~., data = train1,
+                      method = "knn",
+                      trControl=trctrl,
+                      preProcess=c("BoxCox","center","scale","pca"),
+                      tuneLength=5)
+                      #tuneGrid=grid)
+
+
+
+# knn fit for volatility
+knnfit2 = train(y2~., data = train2,
+                method = "knn",
+                trControl=trctrl,
+                preProcess=c("BoxCox","center","scale","pca"),
+                tuneLength=5)
+                #tuneGrid=grid)
+
+
+# neural network for returns 
+nnfit1 <- train(y1 ~ ., 
+                     data = train1, 
+                     method = "nnet", 
+                     trControl = trctrl,
+                     na.action = na.omit,
+                     trace = FALSE)
+
+nnfit2 <- train(y2 ~ ., 
+                data = train2, 
+                method = "nnet", 
+                trControl = trctrl,
+                na.action = na.omit,
+                trace = FALSE)
+
+
+
+# random forest fit for return
+rffit1 <- train(y1 ~ ., 
+                data = train1, 
+                method = "rf", 
+                trControl = trctrl,
+                na.action = na.omit,
+                trace = FALSE)
+
+# random forest fit for volatility
+rffit2 <- train(y2 ~ ., 
+                data = train2, 
+                method = "rf", 
+                trControl = trctrl,
+                na.action = na.omit,
+                trace = FALSE)
+
+
+
+
+
+
+
+
+
+
+
+# We can also plot a ROC curve, in which the True Positive rate (sensitivity)
+# is plotted against the True Negative rate(specificity).
+# This is good for evaluating whether your model is both correctly predicting
+# which are and are not positive sentiment (not just one or the other).
+
+# library(pROC) 
+# 
+# #Draw the ROC curve 
+# nn.probs <- predict(m.NeuralNet,test_data,type="prob")
+# nn.ROC <- roc(predictor=nn.probs$`1`,
+#               response=as.numeric(test_data$Sentiment)-1,
+#               levels=rev(levels(test_data$Sentiment)))
+# nn.ROC$auc
 
 
 
