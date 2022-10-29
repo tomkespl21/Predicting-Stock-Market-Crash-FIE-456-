@@ -264,7 +264,7 @@ gbmGrid <-  expand.grid(interaction.depth = c(1, 9),
                         n.minobsinnode = 10)
 
 
-# extreme boosting machines probably better 
+# extreme boosting machines better ? 
 xbgfit1 <- train(y1 ~ .,
                  data = train1,
                  method = "xgbTree",
