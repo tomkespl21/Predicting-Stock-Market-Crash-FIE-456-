@@ -31,6 +31,10 @@ data <- read_csv("data.csv")
 
 ################ Data Manipulations #########################################
 
+# create returns for 
+
+
+
 ## create lag variables 
 
 data <- 
@@ -89,6 +93,7 @@ data <-
    mutate(RET_squared = as.numeric(RET^2),
           y1 = as.factor(ifelse(RET>0,1,0)),
           y2 = as.factor(ifelse(RET_squared >0.025,1,0)))  
+
              
 
 # check for na in data
@@ -127,7 +132,42 @@ df <- data[,4:31]
 
 cor_ma <- cor(df)
 
+# full plot 
 corrplot(cor_ma,tl.cex=0.6,tl.offset = 0.5)
+
+# function for corr plot of only high correlated variables 
+corr_simple <- function(data=df,sig=0.5){
+   #convert data to numeric in order to run correlations
+   #convert to factor first to keep the integrity of the data - each value will become a number rather than turn into NA
+   df_cor <- data %>% mutate_if(is.character, as.factor)
+   df_cor <- df_cor %>% mutate_if(is.factor, as.numeric)
+   #run a correlation and drop the insignificant ones
+   corr <- cor(df_cor)
+   #prepare to drop duplicates and correlations of 1     
+   corr[lower.tri(corr,diag=TRUE)] <- NA 
+   #drop perfect correlations
+   corr[corr == 1] <- NA 
+   #turn into a 3-column table
+   corr <- as.data.frame(as.table(corr))
+   #remove the NA values from above 
+   corr <- na.omit(corr) 
+   #select significant values  
+   corr <- subset(corr, abs(Freq) > sig) 
+   #sort by highest correlation
+   corr <- corr[order(-abs(corr$Freq)),] 
+   #print table
+   print(corr)
+   #turn corr back into matrix in order to plot with corrplot
+   mtx_corr <- reshape2::acast(corr, Var1~Var2, value.var="Freq")
+   
+   #plot correlations visually
+   corrplot(mtx_corr, is.corr=FALSE, tl.col="black", na.label=" ")
+}
+
+
+# plot with variables of high correlation 
+corr_simple(df)
+
 
 # based on this plot we excluded variables that were extremely highly correlated
 # for obvious reasons and probably dont give useful extra information 
@@ -163,38 +203,43 @@ fviz_pca_var(pca,title="", geom = c("point"),repel=T)
 ######################## models ##########################################
 
 
-# knn algorithm 
-
-#grid <- expand.grid(kmax = c(9,13),            # allows to test a range of k values
-#                    distance = 2,        # allows to test a range of minkowski distances
-#                    kernel = 'rectangular')   # different weighting types in kkn (not used in this thesis)
-
-
-set.seed(42)
 # pcacomp for number of pcs considered, "cv" for cross validtion 
 trctrl = trainControl(method = "cv",
-                      number=3,
+                      number=5,
                       preProcOptions = list(pcaComp=5),
                       verboseIter = TRUE) 
 
+
+# knn algorithm 
+grid <- expand.grid(kmax = c(5,9,13,17,21),            # allows to test a range of k values
+                    distance = 2,        # allows to test a range of minkowski distances
+                    kernel = 'rectangular')   # different weighting types in kkn (not used in this thesis)
+
+
+
+
 # knn fit for returns:
 knnfit1 = train(y1~., data = train1,
-                      method = "knn",
+                      method = "kknn",
                       trControl=trctrl,
                       preProcess=c("BoxCox","center","scale","pca"),
-                      tuneLength=9)
-                      #tuneGrid=grid)
+                      #tuneLength=9)
+                      tuneGrid=grid)
 
 
 
 # knn fit for volatility
 knnfit2 = train(y2~., data = train2,
-                method = "knn",
+                method = "kknn",
                 trControl=trctrl,
                 preProcess=c("BoxCox","center","scale","pca"),
-                tuneLength=9)
-                #tuneGrid=grid)
+                #tuneLength=9)
+                tuneGrid=grid)
 
+
+
+nnet_grid <- expand.grid(.decay = c(0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5), 
+                         .size = c(3, 5, 10, 20))
 
 # neural network for returns 
 nnfit1 <- train(y1 ~ ., 
@@ -203,32 +248,23 @@ nnfit1 <- train(y1 ~ .,
                      preProcess=c("BoxCox","center","scale","pca"),
                      trControl = trctrl,
                      na.action = na.omit,
+                     tuneGrid = nnet_grid,
                      trace = FALSE)
 
 nnfit2 <- train(y2 ~ ., 
                 data = train2, 
                 method = "nnet", 
                 trControl = trctrl,
+                preProcess=c("BoxCox","center","scale","pca"),
                 na.action = na.omit,
+                tuneGrid = nnet_grid,
                 trace = FALSE)
 
 
 
-# We can also plot a ROC curve, in which the True Positive rate (sensitivity)
-# is plotted against the True Negative rate(specificity).
-# This is good for evaluating whether your model is both correctly predicting
-# which are and are not positive sentiment (not just one or the other).
-
-# library(pROC) 
-# 
-# #Draw the ROC curve 
-# nn.probs <- predict(m.NeuralNet,test_data,type="prob")
-# nn.ROC <- roc(predictor=nn.probs$`1`,
-#               response=as.numeric(test_data$Sentiment)-1,
-#               levels=rev(levels(test_data$Sentiment)))
-# nn.ROC$auc
 
 
+#rfgrid <- expand.grid(.mtry=c(1:15))
 
 # random forest fit for return
 set.seed(42)
@@ -236,7 +272,10 @@ rffit1 <- train(y1 ~ .,
                  data = train1, 
                  method = "rf", 
                  trControl = trctrl,
+                 preProcess=c("BoxCox","center","scale","pca"),
                  na.action = na.omit,
+                 #tuneGrid=rfgrid,
+                 tuneLength=4,
                  trace = FALSE)
 
 plot(rffit1$finalModel)
@@ -249,7 +288,10 @@ rffit2 <- train(y2 ~ .,
                  data = train2, 
                  method = "rf", 
                  trControl = trctrl,
+                 preProcess=c("BoxCox","center","scale","pca"),
                  na.action = na.omit,
+                #tuneGrid = rfgrid,
+                 tuneLength=4,
                  trace = FALSE)
 
 plot(rffit2$finalModel)
@@ -258,24 +300,33 @@ plot(rffit2)
  
 # gradient boosting machines 
 
-gbmGrid <-  expand.grid(interaction.depth = c(1, 9), 
-                        n.trees = 500, 
-                        shrinkage = 0.05,
+# Max shrinkage for gbm
+nl = nrow(train1)
+max(0.01, 0.1*min(1, nl/10000))
+
+# Max Value for interaction.depth
+floor(sqrt(ncol(train1)))
+gbmGrid <-  expand.grid(interaction.depth = c(1, 3, 5),
+                        n.trees = c(50,100,300,500,1000,2000), 
+                        shrinkage = c(0.005,0.025,0.05,0.075,0.1),
                         n.minobsinnode = 10)
 
 
-# extreme boosting machines better ? 
-xbgfit1 <- train(y1 ~ .,
-                 data = train1,
-                 method = "xgbTree",
-                                   trControl = trctrl,
-                                   preProc = c("center", "scale","pca"))
 
-xbgfit2 <- train(y2 ~ .,
-                 data = train2,
-                 method = "xgbTree",
-                 trControl = trctrl,
-                 preProc = c("center", "scale","pca"))
+
+
+# # extreme boosting machines better ? 
+# xbgfit1 <- train(y1 ~ .,
+#                  data = train1,
+#                  method = "xgbTree",
+#                                    trControl = trctrl,
+#                                    preProc = c("center", "scale","pca"))
+# 
+# xbgfit2 <- train(y2 ~ .,
+#                  data = train2,
+#                  method = "xgbTree",
+#                  trControl = trctrl,
+#                  preProc = c("center", "scale","pca"))
 
 # what is n.minobsinnode for ?
 # At each step of the GBM algorithm, a new decision tree is constructed.
@@ -295,9 +346,9 @@ set.seed(42)
 gbmfit1 <- train(y1 ~ ., data = train1, 
                  method = "gbm", 
                  trControl = trctrl,
+                 preProcess=c("BoxCox","center","scale","pca"),
                  tuneGrid = gbmGrid)
 
-pretty.gbm.tree(gbmfit1)
 
 
 
@@ -305,6 +356,7 @@ set.seed(42)
 gbmfit2 <- train(y2 ~ ., data = train2, 
                  method = "gbm", 
                  trControl = trctrl,
+                 preProcess=c("BoxCox","center","scale","pca"),
                  tuneGrid = gbmGrid)
 
 
@@ -342,7 +394,19 @@ confusionMatrix(gbmpredict2, testing$y2)
 
 
 
+# We can also plot a ROC curve, in which the True Positive rate (sensitivity)
+# is plotted against the True Negative rate(specificity).
+# This is good for evaluating whether your model is both correctly predicting
+# which are and are not positive sentiment (not just one or the other).
 
+# library(pROC) 
+# 
+# #Draw the ROC curve 
+# nn.probs <- predict(m.NeuralNet,test_data,type="prob")
+# nn.ROC <- roc(predictor=nn.probs$`1`,
+#               response=as.numeric(test_data$Sentiment)-1,
+#               levels=rev(levels(test_data$Sentiment)))
+# nn.ROC$auc
 
 
 
