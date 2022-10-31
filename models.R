@@ -32,14 +32,22 @@ data <- read_csv("data.csv")
 ################ Data Manipulations #########################################
 
 # create returns for 
+# compare compustat ratios to industry ratios ?? 
+# is accounting data unusual for your industry
 
 
+##### do we have book/market ratio ?? 
 
-## create lag variables 
+## create lag variables and 
 
 data <- 
    data %>% 
+   rename(SP500 = Price,
+          oil = DCOILWTICO) %>% 
    arrange(PERMNO,DATE) %>% 
+   mutate(SP500return = SP500/lag(SP500)-1) %>% 
+   mutate(marketdiff = RET-SP500return) %>% 
+   mutate(oilreturn = oil/lag(oil)-1) %>% 
    mutate(return1 = lag(RET,n=1),
           return2 = lag(RET,n=2),
           return3 = lag(RET,n=3),
@@ -59,7 +67,7 @@ data <-
           revenue   = lag(revtq, n=1),
           equity    = lag(teqq, n=1),
           taxes    = lag(txtq, n=1),
-          oilprice  = lag(DCOILWTICO, n=1),
+          oilprice  = lag(oil, n=1),
           policy    = lag(GEPUCURRENT, n=1),
           growth  = lag(growth_rate, n=1),
           bbkm    = lag(BBKMGDP, n=1),
@@ -72,8 +80,11 @@ data <-
           yenusd  = lag(yenusd, n=1),
           vix     = lag(vix, n=1),
           fed     = lag(FEDFUNDS, n=1),
-          ted     = lag(TEDRATE, n=1)) %>% 
-   select(-c(3,6:37)) %>% 
+          ted     = lag(TEDRATE, n=1),
+          SP500   = lag(SP500, n=1),
+          SP500return = lag(SP500return,n=1),
+          oilreturn = lag(oilreturn,n=1)) %>% 
+   select(-c(2,3,6:39)) %>% 
              drop_na()
 
 
