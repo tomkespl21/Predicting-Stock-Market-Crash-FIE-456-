@@ -226,7 +226,6 @@ fedrates <-
   drop_na()
 
 # ted rate
-
 ted <- read_csv("tedrate.csv")
 
 ted <- 
@@ -236,6 +235,24 @@ ted <-
   drop_na()
 
 ted<- ted[endpoints(ted$DATE ,on = "months"),]
+
+
+# SP500 
+
+SP500 <- read_csv("SP500.csv")
+
+SP500 <- 
+  SP500 %>% 
+  rename(DATE = Date) %>% 
+  select(1,2) %>%
+  mutate(DATE = as.Date(DATE,"%m/%d/%Y"),
+         DATE = ymd(DATE)) %>% 
+  arrange(DATE) %>% 
+    drop_na()
+
+SP500<- SP500[endpoints(SP500$DATE ,on = "months"),]
+  
+  
 
 
 
@@ -254,6 +271,7 @@ data <- merge(data,yen_usd,by="DATE")
 data <- merge(data,vix,by="DATE")
 data <- merge(data,fedrates,by="DATE")
 data <- merge(data,ted,by="DATE")
+data <- merge(data,SP500,by="DATE")
 
 
 
