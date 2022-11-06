@@ -13,7 +13,7 @@
 
 rm(list=ls())
 
-#libraries
+#libraries 
 library(tidyverse)
 library(lubridate)  # ymd function 
 library(corrplot) 
@@ -24,7 +24,8 @@ library(nnet)
 library(randomForest)
 library(gbm)
 library(kernlab)
-
+library(klaR)
+library(pROC)
 
 data <- read_csv("data.csv")
 
@@ -42,28 +43,27 @@ data <- read_csv("data.csv")
 
 data <- 
    data %>% 
-   rename(SP500 = Price,
+   rename(SP500 = Price.x,
+          gold = Price.y,
           oil = DCOILWTICO) %>% 
    arrange(PERMNO,DATE) %>% 
-   mutate(SP500return = SP500/lag(SP500)-1) %>% 
-   mutate(marketdiff = RET-SP500return) %>% 
-   mutate(oilreturn = oil/lag(oil)-1) %>% 
-   mutate(return1 = lag(RET,n=1),
+   mutate(SP500return = SP500/lag(SP500)-1,
+          marketdiff = RET-SP500return,
+          oilreturn = oil/lag(oil)-1,
+          goldreturn = gold/lag(gold)-1,
+          MV         = PRC * SHROUT,
+          BM         = atq / MV,
+          return1 = lag(RET,n=1),
           return2 = lag(RET,n=2),
           return3 = lag(RET,n=3),
-          shrout = lag(SHROUT,n=1),
-          vol    = lag(VOL,n=1),
-          assets     = lag(atq,n=1),
-          cash     = lag(chq, n=1),
-          debt   = lag(dlttq, n=1),
-          dep_amor     = lag(dpq,n=1),
+          vol     = lag(VOL,n=1),
+          MV1     = lag(MV,n=1),
+          BM1     = lag(BM,n=1),
+          BM2     = lag(BM,n=2),
           dividends    = lag(dvpq,n=1),
-          eps  = lag(epsfiq, n=1),
+          eps1  = lag(epsfiq, n=1),
+          eps2  = lag(epsfiq, n=2),
           goodwill   = lag(gdwlq, n=1),
-          investments   = lag(ivltq, n=1),
-          income     = lag(niq, n=1),
-          lag_prcraq  = lag(prcraq, n=1),
-          rd   = lag(rdipq, n=1),
           revenue   = lag(revtq, n=1),
           equity    = lag(teqq, n=1),
           taxes    = lag(txtq, n=1),
@@ -72,20 +72,23 @@ data <-
           growth  = lag(growth_rate, n=1),
           bbkm    = lag(BBKMGDP, n=1),
           unrate  = lag(UNRATE, n=1),
-          yield   = lag(yield, n=1),
+          Yield   = lag(yield, n=1),
           oaspread    = as.numeric(lag(BAMLH0A1HYBBEY, n=1)),
           cbyield = lag(cbyield, n=1),
-          spread  = lag(spread, n=1),
-          usdeur  = lag(usdeur, n=1),
-          yenusd  = lag(yenusd, n=1),
-          vix     = lag(vix, n=1),
-          fed     = lag(FEDFUNDS, n=1),
-          ted     = lag(TEDRATE, n=1),
-          SP500   = lag(SP500, n=1),
-          SP500return = lag(SP500return,n=1),
-          oilreturn = lag(oilreturn,n=1)) %>% 
-   select(-c(2,3,6:39)) %>% 
+          Spread  = lag(spread, n=1),
+          USDEUR  = lag(usdeur, n=1),
+          YENUSD  = lag(yenusd, n=1),
+          VIX     = lag(vix, n=1),
+          FED     = lag(FEDFUNDS, n=1),
+          TED     = lag(TEDRATE, n=1),
+          SP      = lag(SP500, n=1),
+          SPreturn = lag(SP500return,n=1),
+          Oilreturn = lag(oilreturn,n=1),
+          Goldreturn = lag(goldreturn,n=1),
+          Marketdiff = lag(marketdiff,n=1)) %>% 
+   dplyr::select(-c(2:4,6:45)) %>% 
              drop_na()
+
 
 
 # why not running statistical significance tests 
@@ -103,9 +106,9 @@ data <-
    data %>% 
    mutate(RET_squared = as.numeric(RET^2),
           y1 = as.factor(ifelse(RET>0,1,0)),
-          y2 = as.factor(ifelse(RET_squared >0.025,1,0)))  
+          y2 = as.factor(ifelse(RET_squared >0.01,1,0)))
 
-             
+           
 
 # check for na in data
 anyNA(data)
@@ -132,19 +135,19 @@ prop.table(table(data$y2)) * 100
 
 
 # which variables to use for "training" and "testing" 
-train1 <- training[,c(5:31,33)] 
-train2 <- training[,c(5:31,34)]
+train1 <- training[,c(3:34,36)] 
+train2 <- training[,c(3:34,37)]
 
 
 
 ############### correlation plot ###########################
 
-df <- data[,4:31]
+df <- data[,3:34]
 
 cor_ma <- cor(df)
 
 # full plot 
-corrplot(cor_ma,tl.cex=0.6,tl.offset = 0.5)
+corrplot(cor_ma,tl.cex=0.4,tl.offset = 0.3)
 
 # function for corr plot of only high correlated variables 
 corr_simple <- function(data=df,sig=0.5){
@@ -177,15 +180,15 @@ corr_simple <- function(data=df,sig=0.5){
 
 
 # plot with variables of high correlation 
-corr_simple(df)
+corr_simple(df,0.6)
 
 
 # based on this plot we excluded variables that were extremely highly correlated
 # for obvious reasons and probably dont give useful extra information 
 
-# There are three main reasons why you would remove correlated features:
+# There are three main reasons why you would remove highly correlated features:
 # Make the learning algorithm faster
-# Decrease harmful bias
+# Decrease harmful bias , overfitting 
 # interpretability of your model
 
 ##################### pca plots ##########################################
@@ -216,15 +219,18 @@ fviz_pca_var(pca,title="", geom = c("point"),repel=T)
 
 # pcacomp for number of pcs considered, "cv" for cross validtion 
 trctrl = trainControl(method = "cv",
-                      number=5,
-                      preProcOptions = list(pcaComp=5),
+                      number=3,
+                      preProcOptions = list(pcaComp=7),
                       verboseIter = TRUE) 
 
 
+
+
+
 # knn algorithm 
-grid <- expand.grid(kmax = c(5,9,13,17,21),            # allows to test a range of k values
-                    distance = 2,        # allows to test a range of minkowski distances
-                    kernel = 'rectangular')   # different weighting types in kkn (not used in this thesis)
+grid <- expand.grid(kmax = c(9,13,17,21,25),            # allows to test a range of k values
+                    distance = 1:2,        # allows to test a range of minkowski distances
+                    kernel = c("rectangular","gaussian"))   # different weighting types in kkn 
 
 
 
@@ -233,8 +239,8 @@ grid <- expand.grid(kmax = c(5,9,13,17,21),            # allows to test a range 
 knnfit1 = train(y1~., data = train1,
                       method = "kknn",
                       trControl=trctrl,
-                      preProcess=c("BoxCox","center","scale","pca"),
-                      #tuneLength=9)
+                      preProcess=c("center","scale","pca"),
+                      #tuneLength=3)
                       tuneGrid=grid)
 
 
@@ -243,39 +249,41 @@ knnfit1 = train(y1~., data = train1,
 knnfit2 = train(y2~., data = train2,
                 method = "kknn",
                 trControl=trctrl,
-                preProcess=c("BoxCox","center","scale","pca"),
-                #tuneLength=9)
+                preProcess=c("center","scale","pca"),
+                #tuneLength=3)
                 tuneGrid=grid)
 
 
 
-nnet_grid <- expand.grid(.decay = c(0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5), 
+nnet_grid <- expand.grid(.decay = c(0.5, 0.1, 1e-2, 1e-3, 1e-4), 
                          .size = c(3, 5, 10, 20))
 
 # neural network for returns 
 nnfit1 <- train(y1 ~ ., 
                      data = train1, 
                      method = "nnet", 
-                     preProcess=c("BoxCox","center","scale","pca"),
+                     preProcess=c("center","scale"),
                      trControl = trctrl,
                      na.action = na.omit,
                      tuneGrid = nnet_grid,
+                     #tuneLength = 3,
                      trace = FALSE)
 
 nnfit2 <- train(y2 ~ ., 
                 data = train2, 
                 method = "nnet", 
                 trControl = trctrl,
-                preProcess=c("BoxCox","center","scale","pca"),
+                preProcess=c("center","scale","pca"),
                 na.action = na.omit,
-                tuneGrid = nnet_grid,
+                #tuneGrid = nnet_grid,
+                tuneLength = 5,
                 trace = FALSE)
 
 
 
 
 
-#rfgrid <- expand.grid(.mtry=c(1:15))
+rfgrid <- expand.grid(.mtry=c(1:10))
 
 # random forest fit for return
 set.seed(42)
@@ -283,10 +291,10 @@ rffit1 <- train(y1 ~ .,
                  data = train1, 
                  method = "rf", 
                  trControl = trctrl,
-                 preProcess=c("BoxCox","center","scale","pca"),
+                 preProcess=c("center","scale","pca"),
                  na.action = na.omit,
-                 #tuneGrid=rfgrid,
-                 tuneLength=4,
+                 tuneGrid=rfgrid,
+                 #tuneLength=4,
                  trace = FALSE)
 
 plot(rffit1$finalModel)
@@ -299,10 +307,10 @@ rffit2 <- train(y2 ~ .,
                  data = train2, 
                  method = "rf", 
                  trControl = trctrl,
-                 preProcess=c("BoxCox","center","scale","pca"),
+                 preProcess=c("center","scale","pca"),
                  na.action = na.omit,
-                #tuneGrid = rfgrid,
-                 tuneLength=4,
+                tuneGrid = rfgrid,
+                 #tuneLength=4,
                  trace = FALSE)
 
 plot(rffit2$finalModel)
@@ -311,33 +319,41 @@ plot(rffit2)
  
 # gradient boosting machines 
 
-# Max shrinkage for gbm
-nl = nrow(train1)
-max(0.01, 0.1*min(1, nl/10000))
-
-# Max Value for interaction.depth
-floor(sqrt(ncol(train1)))
-gbmGrid <-  expand.grid(interaction.depth = c(1, 3, 5),
-                        n.trees = c(50,100,300,500,1000,2000), 
-                        shrinkage = c(0.005,0.025,0.05,0.075,0.1),
-                        n.minobsinnode = 10)
-
-
+# # Max shrinkage for gbm
+ nl = nrow(train1)
+ max(0.01, 0.1*min(1, nl/10000))
+ 
+ # Max Value for interaction.depth
+ floor(sqrt(ncol(train1)))
+ gbmGrid <-  expand.grid(interaction.depth = c(1, 3, 5),
+                         n.trees = c(50,100,300,500,1000,2000), 
+                         shrinkage = c(0.005,0.025,0.05,0.075,0.1),
+                         n.minobsinnode = 10)
 
 
 
-# # extreme boosting machines better ? 
-# xbgfit1 <- train(y1 ~ .,
-#                  data = train1,
-#                  method = "xgbTree",
-#                                    trControl = trctrl,
-#                                    preProc = c("center", "scale","pca"))
-# 
-# xbgfit2 <- train(y2 ~ .,
-#                  data = train2,
-#                  method = "xgbTree",
-#                  trControl = trctrl,
-#                  preProc = c("center", "scale","pca"))
+#xgbgrid <- expand.grid(nrounds=c(10,50,100,200),
+                       # max_depth = c(3,5,8,10),
+                       # eta = c(0.01,0.05,0.1,0.2,0.3))
+                       # 
+                       # 
+
+# extreme boosting machines 
+#xgbfit1 <- train(y1 ~ .,
+#                       data = train1,
+#                       method = "xgbTree",
+#                       trControl = trctrl,
+#                       preProc = c("center", "scale","pca"),
+#                       tuneGrid=xgbgrid)
+#                       #tuneLength = 5)
+#  
+# xgbfit2 <- train(y2 ~ .,
+#                data = train2,
+#                       method = "xgbTree",
+#                       trControl = trctrl,
+#                       preProc = c("center", "scale","pca"),
+#                       tuneGrid = xgbgrid)
+#                       #tuneLength = 5)
 
 # what is n.minobsinnode for ?
 # At each step of the GBM algorithm, a new decision tree is constructed.
@@ -353,24 +369,26 @@ gbmGrid <-  expand.grid(interaction.depth = c(1, 3, 5),
 #it has to perform on a tree
 
 
-set.seed(42)
-gbmfit1 <- train(y1 ~ ., data = train1, 
-                 method = "gbm", 
-                 trControl = trctrl,
-                 preProcess=c("BoxCox","center","scale","pca"),
-                 tuneGrid = gbmGrid)
-
-
-
-
-set.seed(42)
-gbmfit2 <- train(y2 ~ ., data = train2, 
-                 method = "gbm", 
-                 trControl = trctrl,
-                 preProcess=c("BoxCox","center","scale","pca"),
-                 tuneGrid = gbmGrid)
-
-
+ set.seed(42)
+ gbmfit1 <- train(y1 ~ ., data = train1, 
+                  method = "gbm", 
+                  trControl = trctrl,
+                  preProcess=c("center","scale","pca"),
+                  tuneGrid = gbmGrid)
+                  #tuneLength=5)
+ 
+ 
+ 
+ 
+ set.seed(42)
+ gbmfit2 <- train(y2 ~ ., data = train2, 
+                  method = "gbm", 
+                  trControl = trctrl,
+                  preProcess=c("center","scale","pca"),
+                  tuneGrid = gbmGrid)
+                  #tuneLength=4)
+ 
+# 
 
 
 
@@ -395,7 +413,7 @@ confusionMatrix(rfpredict1, testing$y1)
 rfpredict2 <- predict(rffit2,newdata=testing)
 confusionMatrix(rfpredict2, testing$y2)
 
-gbmpredict1 <- predict(rffit1,newdata=testing)
+gbmpredict1 <- predict(gbmfit1,newdata=testing)
 confusionMatrix(gbmpredict1, testing$y1)
 
 gbmpredict2 <- predict(gbmfit2,newdata=testing)
@@ -403,22 +421,46 @@ confusionMatrix(gbmpredict2, testing$y2)
 
 
 
-
+## ROC 
 
 # We can also plot a ROC curve, in which the True Positive rate (sensitivity)
 # is plotted against the True Negative rate(specificity).
 # This is good for evaluating whether your model is both correctly predicting
 # which are and are not positive sentiment (not just one or the other).
 
-# library(pROC) 
+ 
 # 
 # #Draw the ROC curve 
-# nn.probs <- predict(m.NeuralNet,test_data,type="prob")
-# nn.ROC <- roc(predictor=nn.probs$`1`,
-#               response=as.numeric(test_data$Sentiment)-1,
-#               levels=rev(levels(test_data$Sentiment)))
-# nn.ROC$auc
+knn.probs2 <- predict(knnfit2,testing,type="prob")
+knn.roc.score <- roc(response=testing$y2,predictor=knn.probs2[,2])
+plot(knn.roc.score)
 
+nn.probs2 <- predict(nnfit2,testing,type="prob")
+nn.roc.score <- roc(response=testing$y2,predictor=nn.probs2[,2])
+
+rf.probs2 <- predict(rffit2,testing,type="prob")
+rf.roc.score <- roc(response=testing$y2,predictor=rf.probs2[,2])
+plot(rf.roc.score)
+
+gbm.probs2 <- predict(gbmfit2,testing,type="prob")
+gbm.roc.score <- roc(response=testing$y2,predictor=gbm.probs2[,2])
+plot(gbm.roc.score)
+
+knn.probs1 <- predict(knnfit1,testing,type="prob")
+knn.roc.score1 <- roc(response=testing$y1,predictor=knn.probs1[,2])
+plot(knn.roc.score1)
+
+nn.probs1 <- predict(nnfit1,testing,type="prob")
+nn.roc.score1 <- roc(response=testing$y1,predictor=nn.probs1[,2])
+plot(nn.roc.score1)
+
+rf.probs1 <- predict(rffit1,testing,type="prob")
+rf.roc.score1 <- roc(response=testing$y1,predictor=rf.probs1[,2])
+plot(rf.roc.score1)
+
+gbm.probs1 <- predict(gbmfit1,testing,type="prob")
+gbm.roc.score1 <- roc(response=testing$y1,predictor=gbm.probs1[,2])
+plot(gbm.roc.score1)
 
 
 
