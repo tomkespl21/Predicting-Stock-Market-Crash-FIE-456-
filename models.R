@@ -26,6 +26,7 @@ library(gbm)
 library(kernlab)
 library(klaR)
 library(pROC)
+library(stargazer)
 
 data <- read_csv("data.csv")
 
@@ -47,33 +48,33 @@ data <-
           gold = Price.y,
           oil = DCOILWTICO) %>% 
    arrange(PERMNO,DATE) %>% 
+   filter(revtq>0) %>% 
    mutate(SP500return = SP500/lag(SP500)-1,
           marketdiff = RET-SP500return,
           oilreturn = oil/lag(oil)-1,
           goldreturn = gold/lag(gold)-1,
           MV         = PRC * SHROUT,
+          EV         = MV-chq+dlcq,
           BM         = atq / MV,
+          ROA        = ibcomq / atq,
+          EFFratio   = EV/revtq,
           return1 = lag(RET,n=1),
           return2 = lag(RET,n=2),
           return3 = lag(RET,n=3),
-          vol     = lag(VOL,n=1),
-          MV1     = lag(MV,n=1),
-          BM1     = lag(BM,n=1),
-          BM2     = lag(BM,n=2),
-          dividends    = lag(dvpq,n=1),
           eps1  = lag(epsfiq, n=1),
           eps2  = lag(epsfiq, n=2),
-          goodwill   = lag(gdwlq, n=1),
-          revenue   = lag(revtq, n=1),
-          equity    = lag(teqq, n=1),
-          taxes    = lag(txtq, n=1),
+          vol     = lag(VOL,n=1),
+          BM1     = lag(BM,n=1),
+          BM2     = lag(BM,n=2),
+          ROA1    = lag(ROA,n=1),
+          EFFratio1 = as.numeric(lag(EFFratio,n=1)),
+          EFFratio2 = as.numeric(lag(EFFratio,n=2)),
           oilprice  = lag(oil, n=1),
           policy    = lag(GEPUCURRENT, n=1),
           growth  = lag(growth_rate, n=1),
           bbkm    = lag(BBKMGDP, n=1),
           unrate  = lag(UNRATE, n=1),
           Yield   = lag(yield, n=1),
-          oaspread    = as.numeric(lag(BAMLH0A1HYBBEY, n=1)),
           cbyield = lag(cbyield, n=1),
           Spread  = lag(spread, n=1),
           USDEUR  = lag(usdeur, n=1),
@@ -82,11 +83,15 @@ data <-
           FED     = lag(FEDFUNDS, n=1),
           TED     = lag(TEDRATE, n=1),
           SP      = lag(SP500, n=1),
-          SPreturn = lag(SP500return,n=1),
-          Oilreturn = lag(oilreturn,n=1),
-          Goldreturn = lag(goldreturn,n=1),
-          Marketdiff = lag(marketdiff,n=1)) %>% 
-   dplyr::select(-c(2:4,6:45)) %>% 
+          SPreturn1 = lag(SP500return,n=1),
+          SPreturn2 = lag(SP500return,n=2),
+          Oilreturn1 = lag(oilreturn,n=1),
+          Oilreturn2 = lag(oilreturn,n=2),
+          Goldreturn1 = lag(goldreturn,n=1),
+          Goldreturn2 = lag(goldreturn,n=2),
+          Marketdiff1 = lag(marketdiff,n=1),
+          Marketdiff2 = lag(marketdiff,n=2)) %>% 
+   dplyr::select(-c(2:4,6:51)) %>% 
              drop_na()
 
 
@@ -140,9 +145,10 @@ train2 <- training[,c(3:34,37)]
 
 
 
+
 ############### correlation plot ###########################
 
-df <- data[,3:34]
+df <- data[,2:34]
 
 cor_ma <- cor(df)
 
@@ -183,6 +189,7 @@ corr_simple <- function(data=df,sig=0.5){
 corr_simple(df,0.6)
 
 
+
 # based on this plot we excluded variables that were extremely highly correlated
 # for obvious reasons and probably dont give useful extra information 
 
@@ -214,23 +221,52 @@ fviz_pca_var(pca,title="", geom = c("point","text"),repel=T)
 fviz_pca_var(pca,title="", geom = c("point"),repel=T)
 
 
+##### summary statistics
+
+summary(data)
+
+# company data summary statistics
+data %>% 
+   dplyr::select(2,6,8,9,11,12) %>% 
+   as.matrix() %>% 
+   stargazer(data, type = 'latex', header = FALSE, summary = TRUE,
+             title = 'Summary statistics',
+             summary.stat = c('n', 'min', 'mean', 'max', 'sd'))
+
+# macro data
+data %>% 
+   dplyr::select(14:26, 27, 29, 31, 33) %>% 
+   as.matrix() %>% 
+   stargazer(data, type = 'latex', header = FALSE, summary = TRUE,
+             title = 'Summary statistics',
+             summary.stat = c('n', 'min', 'mean', 'max', 'sd'))
+
+
+
+
+stargazer(data)
+
+
+
 ######################## models ##########################################
 
 
 # pcacomp for number of pcs considered, "cv" for cross validtion 
 trctrl = trainControl(method = "cv",
-                      number=3,
-                      preProcOptions = list(pcaComp=7),
+                      number=5,
+                      preProcOptions = list(pcaComp=6),
                       verboseIter = TRUE) 
 
 
 
-
-
 # knn algorithm 
-grid <- expand.grid(kmax = c(9,13,17,21,25),            # allows to test a range of k values
-                    distance = 1:2,        # allows to test a range of minkowski distances
-                    kernel = c("rectangular","gaussian"))   # different weighting types in kkn 
+grid <- expand.grid(kmax = c(9,15,21,25,31),            # allows to test a range of k values
+                    distance = c(1,2,3,4,5),        # allows to test a range of minkowski distances
+                    kernel = c("rectangular",
+                               "gaussian",
+                               "optimal",
+                               "epanechnikov",
+                               "triangular"))   # different weighting types in kkn 
 
 
 
@@ -255,35 +291,36 @@ knnfit2 = train(y2~., data = train2,
 
 
 
-nnet_grid <- expand.grid(.decay = c(0.5, 0.1, 1e-2, 1e-3, 1e-4), 
-                         .size = c(3, 5, 10, 20))
+nnet_grid <- expand.grid(.decay = c(0.5, 0.1, 1e-2, 1e-3), 
+                         .size = c(1,5, 10, 20))
 
 # neural network for returns 
+set.seed(42)
 nnfit1 <- train(y1 ~ ., 
                      data = train1, 
                      method = "nnet", 
-                     preProcess=c("center","scale"),
+                     preProcess=c("center","scale","pca"),
                      trControl = trctrl,
                      na.action = na.omit,
                      tuneGrid = nnet_grid,
-                     #tuneLength = 3,
+                     #tuneLength = 5,
                      trace = FALSE)
-
+set.seed(42)
 nnfit2 <- train(y2 ~ ., 
                 data = train2, 
                 method = "nnet", 
                 trControl = trctrl,
                 preProcess=c("center","scale","pca"),
                 na.action = na.omit,
-                #tuneGrid = nnet_grid,
-                tuneLength = 5,
+                tuneGrid = nnet_grid,
+                #tuneLength = 5,
                 trace = FALSE)
 
 
 
 
 
-rfgrid <- expand.grid(.mtry=c(1:10))
+rfgrid <- expand.grid(.mtry=c(1:15))
 
 # random forest fit for return
 set.seed(42)
@@ -297,8 +334,7 @@ rffit1 <- train(y1 ~ .,
                  #tuneLength=4,
                  trace = FALSE)
 
-plot(rffit1$finalModel)
-plot(rffit1)
+ggplot(rffit1)
 
  
  # random forest fit for volatility
@@ -313,8 +349,7 @@ rffit2 <- train(y2 ~ .,
                  #tuneLength=4,
                  trace = FALSE)
 
-plot(rffit2$finalModel)
-plot(rffit2)
+ggplot(rffit2)
  
  
 # gradient boosting machines 
@@ -432,11 +467,12 @@ confusionMatrix(gbmpredict2, testing$y2)
 # 
 # #Draw the ROC curve 
 knn.probs2 <- predict(knnfit2,testing,type="prob")
-knn.roc.score <- roc(response=testing$y2,predictor=knn.probs2[,2])
-plot(knn.roc.score)
+knn.roc.score2 <- roc(response=testing$y2,predictor=knn.probs2[,2])
+plot(knn.roc.score2)
 
 nn.probs2 <- predict(nnfit2,testing,type="prob")
-nn.roc.score <- roc(response=testing$y2,predictor=nn.probs2[,2])
+nn.roc.score2 <- roc(response=testing$y2,predictor=nn.probs2[,2])
+plot(nn.roc.score2)
 
 rf.probs2 <- predict(rffit2,testing,type="prob")
 rf.roc.score <- roc(response=testing$y2,predictor=rf.probs2[,2])
@@ -461,7 +497,6 @@ plot(rf.roc.score1)
 gbm.probs1 <- predict(gbmfit1,testing,type="prob")
 gbm.roc.score1 <- roc(response=testing$y1,predictor=gbm.probs1[,2])
 plot(gbm.roc.score1)
-
 
 
 
