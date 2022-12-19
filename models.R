@@ -254,19 +254,18 @@ stargazer(data)
 # pcacomp for number of pcs considered, "cv" for cross validtion 
 trctrl = trainControl(method = "cv",
                       number=5,
-                      preProcOptions = list(pcaComp=6),
+                      #preProcOptions = list(pcaComp=6),
                       verboseIter = TRUE) 
 
 
 
 # knn algorithm 
 grid <- expand.grid(kmax = c(9,15,21,25,31),            # allows to test a range of k values
-                    distance = c(1,2,3,4,5),        # allows to test a range of minkowski distances
+                    distance = c(1,2,3,4),        # allows to test a range of minkowski distances
                     kernel = c("rectangular",
                                "gaussian",
                                "optimal",
-                               "epanechnikov",
-                               "triangular"))   # different weighting types in kkn 
+                               "epanechnikov"))   # different weighting types in kkn 
 
 
 
@@ -275,7 +274,7 @@ grid <- expand.grid(kmax = c(9,15,21,25,31),            # allows to test a range
 knnfit1 = train(y1~., data = train1,
                       method = "kknn",
                       trControl=trctrl,
-                      preProcess=c("center","scale","pca"),
+                      preProcess=c("center","scale"),
                       #tuneLength=3)
                       tuneGrid=grid)
 
@@ -285,21 +284,24 @@ knnfit1 = train(y1~., data = train1,
 knnfit2 = train(y2~., data = train2,
                 method = "kknn",
                 trControl=trctrl,
-                preProcess=c("center","scale","pca"),
+                preProcess=c("center","scale"),
                 #tuneLength=3)
                 tuneGrid=grid)
 
+ggplot(knnfit2)
 
 
-nnet_grid <- expand.grid(.decay = c(0.5, 0.1, 1e-2, 1e-3), 
-                         .size = c(1,5, 10, 20))
+
+nnet_grid <- expand.grid(decay = c(0.5, 0.1, 1e-2, 1e-3), 
+                         size = c(1,5, 10, 20),
+                         bag = TRUE)
 
 # neural network for returns 
 set.seed(42)
 nnfit1 <- train(y1 ~ ., 
                      data = train1, 
-                     method = "nnet", 
-                     preProcess=c("center","scale","pca"),
+                     method = "avNNet", 
+                     preProcess=c("center","scale"),
                      trControl = trctrl,
                      na.action = na.omit,
                      tuneGrid = nnet_grid,
@@ -308,9 +310,9 @@ nnfit1 <- train(y1 ~ .,
 set.seed(42)
 nnfit2 <- train(y2 ~ ., 
                 data = train2, 
-                method = "nnet", 
+                method = "avNNet", 
                 trControl = trctrl,
-                preProcess=c("center","scale","pca"),
+                preProcess=c("center","scale"),
                 na.action = na.omit,
                 tuneGrid = nnet_grid,
                 #tuneLength = 5,
@@ -318,9 +320,7 @@ nnfit2 <- train(y2 ~ .,
 
 
 
-
-
-rfgrid <- expand.grid(.mtry=c(1:15))
+rfgrid <- expand.grid(.mtry=c(1,4,7,10,13,15,18,23,28,33,38,43,50))
 
 # random forest fit for return
 set.seed(42)
@@ -328,7 +328,7 @@ rffit1 <- train(y1 ~ .,
                  data = train1, 
                  method = "rf", 
                  trControl = trctrl,
-                 preProcess=c("center","scale","pca"),
+                 preProcess=c("center","scale"),
                  na.action = na.omit,
                  tuneGrid=rfgrid,
                  #tuneLength=4,
@@ -343,7 +343,7 @@ rffit2 <- train(y2 ~ .,
                  data = train2, 
                  method = "rf", 
                  trControl = trctrl,
-                 preProcess=c("center","scale","pca"),
+                 preProcess=c("center","scale"),
                  na.action = na.omit,
                 tuneGrid = rfgrid,
                  #tuneLength=4,
@@ -352,44 +352,27 @@ rffit2 <- train(y2 ~ .,
 ggplot(rffit2)
  
  
-# gradient boosting machines 
-
-# # Max shrinkage for gbm
- nl = nrow(train1)
- max(0.01, 0.1*min(1, nl/10000))
- 
- # Max Value for interaction.depth
- floor(sqrt(ncol(train1)))
- gbmGrid <-  expand.grid(interaction.depth = c(1, 3, 5),
-                         n.trees = c(50,100,300,500,1000,2000), 
-                         shrinkage = c(0.005,0.025,0.05,0.075,0.1),
-                         n.minobsinnode = 10)
 
 
-
-#xgbgrid <- expand.grid(nrounds=c(10,50,100,200),
-                       # max_depth = c(3,5,8,10),
-                       # eta = c(0.01,0.05,0.1,0.2,0.3))
-                       # 
+                        
                        # 
 
 # extreme boosting machines 
-#xgbfit1 <- train(y1 ~ .,
-#                       data = train1,
-#                       method = "xgbTree",
-#                       trControl = trctrl,
-#                       preProc = c("center", "scale","pca"),
-#                       tuneGrid=xgbgrid)
-#                       #tuneLength = 5)
+xgbfit1 <- train(y1 ~ .,
+                       data = train1,
+                       method = "xgbTree",
+                       trControl = trctrl,
+                       preProc = c("center", "scale"),
+                       tuneLength = 4)
 #  
-# xgbfit2 <- train(y2 ~ .,
-#                data = train2,
-#                       method = "xgbTree",
-#                       trControl = trctrl,
-#                       preProc = c("center", "scale","pca"),
-#                       tuneGrid = xgbgrid)
-#                       #tuneLength = 5)
-
+ xgbfit2 <- train(y2 ~ .,
+                data = train2,
+                       method = "xgbTree",
+                       trControl = trctrl,
+                       preProc = c("center", "scale"),
+                       tuneLength = 4)
+ 
+ 
 # what is n.minobsinnode for ?
 # At each step of the GBM algorithm, a new decision tree is constructed.
 # The question when growing a decision tree is 'when to stop?'.
@@ -404,26 +387,9 @@ ggplot(rffit2)
 #it has to perform on a tree
 
 
- set.seed(42)
- gbmfit1 <- train(y1 ~ ., data = train1, 
-                  method = "gbm", 
-                  trControl = trctrl,
-                  preProcess=c("center","scale","pca"),
-                  tuneGrid = gbmGrid)
-                  #tuneLength=5)
  
  
  
- 
- set.seed(42)
- gbmfit2 <- train(y2 ~ ., data = train2, 
-                  method = "gbm", 
-                  trControl = trctrl,
-                  preProcess=c("center","scale","pca"),
-                  tuneGrid = gbmGrid)
-                  #tuneLength=4)
- 
-# 
 
 
 
@@ -448,12 +414,15 @@ confusionMatrix(rfpredict1, testing$y1)
 rfpredict2 <- predict(rffit2,newdata=testing)
 confusionMatrix(rfpredict2, testing$y2)
 
-gbmpredict1 <- predict(gbmfit1,newdata=testing)
-confusionMatrix(gbmpredict1, testing$y1)
+xgbpredict1 <- predict(xgbfit1,newdata=testing)
+confusionMatrix(xgbpredict1, testing$y1)
 
-gbmpredict2 <- predict(gbmfit2,newdata=testing)
-confusionMatrix(gbmpredict2, testing$y2)
+xgbpredict2 <- predict(xgbfit2,newdata=testing)
+confusionMatrix(xgbpredict2, testing$y2)
 
+# trading strategy
+
+Indicator <- ifelse(xgbpredict1==1 & xgbpredict2==1,1,0)
 
 
 ## ROC 
